@@ -51,6 +51,8 @@ Base: `recloudstream/cloudstream` @ `9ff05a8b` (v4.9.0 / code 68).
   10–15 s timeouts, disk cache 15–100 MB by tier (was fixed 50 MB).
 - TV player + trailer `PlayerView` use `SurfaceView` (zero-copy hardware overlay).
 - `LinearListLayout` sets `initialPrefetchItemCount` (2 potato / 4 default / 6 high tier).
+- Process-wide memory-pressure callback evacuates idle HTTP sockets
+  (`ComponentCallbacks2` in `CloudStreamApp`) under `TRIM_MEMORY_UI_HIDDEN` and above.
 - Native libs packaged **uncompressed** (mmap from APK) — removes install-time extraction
   doubling disk usage on 4 GB storage boxes (upstream used legacy compressed packaging).
 - `hardwareAccelerated=true` on the application (budget TV firmwares sometimes disable it).
