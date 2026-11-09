@@ -95,6 +95,7 @@ import com.lagradost.cloudstream3.ui.player.live.PREFERRED_LIVE_OFFSET
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import com.lagradost.cloudstream3.ui.settings.Globals.PHONE
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.ui.subtitles.SUBTITLE_AUTO_SELECT_KEY
 import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
 import com.lagradost.cloudstream3.utils.AppContextUtils.isUsingMobileData
@@ -884,11 +885,20 @@ class CS3IPlayer : IPlayer {
 
         private fun getTrackSelector(context: Context, maxVideoHeight: Int?): TrackSelector {
             val trackSelector = DefaultTrackSelector(context)
+            val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
+            val primarySub = settingsManager.getString(context.getString(R.string.primary_sub_language_key), null)
+            val autoSelect = getKey<String>(SUBTITLE_AUTO_SELECT_KEY)
+            val isNonePreferred = autoSelect?.equals("none", ignoreCase = true) == true ||
+                autoSelect?.equals(context.getString(R.string.none), ignoreCase = true) == true ||
+                autoSelect?.equals(context.getString(R.string.subtitles_none), ignoreCase = true) == true ||
+                primarySub?.equals("none", ignoreCase = true) == true
+
             trackSelector.parameters = trackSelector.buildUponParameters()
                 // This will not force higher quality videos to fail
                 // but will make the m3u8 pick the correct preferred
                 .setMaxVideoSize(Int.MAX_VALUE, maxVideoHeight ?: Int.MAX_VALUE)
                 .setPreferredAudioLanguage(null)
+                .setTrackTypeDisabled(TRACK_TYPE_TEXT, isNonePreferred)
                 .build()
             return trackSelector
         }

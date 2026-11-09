@@ -49,6 +49,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
+import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKey
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.LoadResponse.Companion.getAniListId
@@ -113,6 +114,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
+import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToEnglishLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleHelper.languages
@@ -147,6 +149,20 @@ class GeneratorPlayer : FullScreenPlayer() {
         const val NOTIFICATION_ID = 2326
         const val CHANNEL_ID = 7340
         const val STOP_ACTION = "stopcs3"
+
+        // Per-series episode-continuity keys for audio / subtitle / source preferences
+        const val SHOW_AUDIO_ID_PREFIX = "pref_audio_show_id_"
+        const val SHOW_AUDIO_LABEL_PREFIX = "pref_audio_show_label_"
+        const val SHOW_AUDIO_LANG_PREFIX = "pref_audio_show_lang_"
+
+        const val SHOW_SUB_DISABLED_PREFIX = "pref_sub_show_disabled_"
+        const val SHOW_SUB_ID_PREFIX = "pref_sub_show_id_"
+        const val SHOW_SUB_NAME_PREFIX = "pref_sub_show_name_"
+        const val SHOW_SUB_LANG_PREFIX = "pref_sub_show_lang_"
+
+        const val SHOW_LINK_SOURCE_PREFIX = "pref_link_show_source_"
+        const val SHOW_LINK_NAME_PREFIX = "pref_link_show_name_"
+        const val SHOW_LINK_QUALITY_PREFIX = "pref_link_show_quality_"
 
         private val generators = ConcurrentHashMap<String, VideoGenerator<*>>()
         fun newInstance(
@@ -187,7 +203,153 @@ class GeneratorPlayer : FullScreenPlayer() {
     private var isPlayerActive: AtomicBoolean = AtomicBoolean(false)
     private var isNextEpisode: Boolean = false // this is used to reset the watch time
 
+    private var hasAutoSelectedSubtitlesForCurrentPlayback: Boolean = false
+
+    // User-chosen track preferences remembered for the current series / playback session
+    private var preferredVideoSource: String? = null
+    private var preferredVideoSourceName: String? = null
+    private var preferredVideoSourceQuality: Int? = null
+    private var preferredAudioLanguage: String? = null
+    private var preferredAudioLabel: String? = null
+    private var preferredAudioId: String? = null
+    private var preferredSubtitleLanguage: String? = null
+    private var preferredSubtitleName: String? = null
+    private var preferredSubtitleId: String? = null
+    private var preferredSubtitleDisabled: Boolean = false
+
     private var preferredAutoSelectSubtitles: String? = null // null means do nothing, "" means none
+    private fun isDubLink(link: DisplayLink): Boolean {
+        val ext = link.link.first
+        val uri = link.link.second
+        val dubRegex = Regex("""\b(dub|dubbed|dual[\s_-]*audio)\b""", RegexOption.IGNORE_CASE)
+        return (ext != null && (dubRegex.containsMatchIn(ext.name) ||
+                dubRegex.containsMatchIn(ext.source) ||
+                dubRegex.containsMatchIn(ext.url))) ||
+                (uri != null && dubRegex.containsMatchIn(uri.name))
+    }
+
+    private fun matchesLanguageToken(text: String, token: String): Boolean {
+        if (text.isBlank() || token.isBlank()) return false
+        return if (token.length <= 3) {
+            Regex("""(?:\b|[^a-zA-Z])${Regex.escape(token)}(?:\b|[^a-zA-Z])""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        } else {
+            text.contains(token, ignoreCase = true)
+        }
+    }
+
+    private fun findLinkMatchingLanguage(candidateLinks: List<DisplayLink>, targetLang: String): DisplayLink? {
+        if (targetLang.isBlank() || targetLang == "none") return null
+
+        val targetMetadata: SubtitleHelper.LanguageMetadata? = SubtitleHelper.getLanguageDataFromCode(targetLang)
+            ?: SubtitleHelper.languages.find {
+                it.IETF_tag.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_1.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_2_B.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_3.equals(targetLang, ignoreCase = true) ||
+                it.languageName.equals(targetLang, ignoreCase = true) ||
+                it.nativeName.equals(targetLang, ignoreCase = true)
+            }
+
+        val namesToCheck = mutableListOf(targetLang)
+        if (targetMetadata != null) {
+            namesToCheck.addAll(listOfNotNull(
+                targetMetadata.languageName,
+                targetMetadata.nativeName,
+                targetMetadata.ISO_639_1,
+                targetMetadata.ISO_639_2_B,
+                targetMetadata.ISO_639_3,
+                targetMetadata.IETF_tag
+            ))
+        }
+
+        // Common language abbreviations and regional tokens
+        if (targetLang.equals("en", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("en", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("eng", "english", "dub", "dubbed"))
+        } else if (targetLang.equals("es", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("es", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("spa", "spanish", "español", "latino", "castellano"))
+        } else if (targetLang.equals("ja", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("ja", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("jpn", "japanese", "nihongo", "sub", "raw"))
+        } else if (targetLang.equals("fr", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("fr", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("fra", "french", "français", "vf", "vostfr"))
+        } else if (targetLang.equals("de", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("de", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("deu", "ger", "german", "deutsch"))
+        } else if (targetLang.equals("it", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("it", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("ita", "italian", "italiano"))
+        } else if (targetLang.equals("pt", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("pt", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("por", "portuguese", "português", "dublado"))
+        } else if (targetLang.equals("ru", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("ru", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("rus", "russian", "русский"))
+        } else if (targetLang.equals("hi", ignoreCase = true) || targetMetadata?.ISO_639_1.equals("hi", ignoreCase = true)) {
+            namesToCheck.addAll(listOf("hin", "hindi"))
+        }
+
+        return candidateLinks.find { candidate ->
+            val ext = candidate.link.first
+            val uri = candidate.link.second
+
+            namesToCheck.any { name ->
+                (ext != null && (matchesLanguageToken(ext.name, name) ||
+                 matchesLanguageToken(ext.source, name) ||
+                 matchesLanguageToken(ext.url, name))) ||
+                (uri != null && matchesLanguageToken(uri.name, name))
+            }
+        }
+    }
+
+    private fun findPreferredLink(candidateLinks: List<DisplayLink>): DisplayLink? {
+        val seriesKey = currentSeriesKey
+        val remSource = preferredVideoSource ?: (seriesKey?.let { getKey<String>(SHOW_LINK_SOURCE_PREFIX + it) })
+        val remName = preferredVideoSourceName ?: (seriesKey?.let { getKey<String>(SHOW_LINK_NAME_PREFIX + it) })
+        val remQuality = preferredVideoSourceQuality ?: (seriesKey?.let { getKey<Int>(SHOW_LINK_QUALITY_PREFIX + it) })
+
+        // 1. Explicit user selection in a previous episode / series takes HIGHEST PRIORITY
+        if (!remSource.isNullOrBlank()) {
+            // 1a. Exact source AND name match (highest fidelity)
+            if (!remName.isNullOrBlank()) {
+                val match = candidateLinks.find {
+                    it.link.first?.source == remSource && it.link.first?.name.equals(remName, ignoreCase = true)
+                }
+                if (match != null) return match
+            }
+
+            // 1b. Exact source AND quality match
+            if (remQuality != null && remQuality > 0) {
+                val match = candidateLinks.find {
+                    it.link.first?.source == remSource && it.link.first?.quality == remQuality
+                }
+                if (match != null) return match
+            }
+
+            // 1c. Same source / extractor match
+            val sourceMatch = candidateLinks.find { it.link.first?.source == remSource }
+            if (sourceMatch != null) return sourceMatch
+        }
+
+        // 2. Default source selection based on Player Language Settings
+        val ctx = context ?: return null
+        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val primaryAudio = settingsManager.getString(ctx.getString(R.string.primary_audio_language_key), null)
+        val secondaryAudio = settingsManager.getString(ctx.getString(R.string.secondary_audio_language_key), null)
+
+        // 2a. Match Primary Audio Language chosen by user
+        if (!primaryAudio.isNullOrBlank() && primaryAudio != "none") {
+            val primaryMatch = findLinkMatchingLanguage(candidateLinks, primaryAudio)
+            if (primaryMatch != null) return primaryMatch
+        }
+
+        // 2b. If no desired source, prefer sources labeled "dub" / "dubbed"
+        val dubMatch = candidateLinks.find { isDubLink(it) }
+        if (dubMatch != null) return dubMatch
+
+        // 2c. Fallback to Secondary Audio Language chosen by user
+        if (!secondaryAudio.isNullOrBlank() && secondaryAudio != "none") {
+            val secondaryMatch = findLinkMatchingLanguage(candidateLinks, secondaryAudio)
+            if (secondaryMatch != null) return secondaryMatch
+        }
+
+        return null
+    }
+
     private val allMeta: List<ResultEpisode>?
         get() = viewModel.state.generatorState?.allMeta?.filterIsInstance<ResultEpisode>()
             ?.map { episode ->
@@ -197,7 +359,75 @@ class GeneratorPlayer : FullScreenPlayer() {
                 } ?: episode
             }
 
+    private val currentSeriesKey: String?
+        get() {
+            val meta = currentMeta
+            return when (meta) {
+                is ResultEpisode -> if (meta.parentId > 0) "show_${meta.parentId}" else "show_${meta.headerName.hashCode()}"
+                is ExtractorUri -> "uri_${meta.headerName.hashCode()}"
+                else -> viewModel.state.generatorState?.id?.let { "gen_$it" }
+            }
+        }
+
+    private fun matchesLanguage(actualLang: String?, actualLabel: String?, targetLang: String?): Boolean {
+        if (targetLang.isNullOrBlank()) return false
+        if (actualLang.isNullOrBlank() && actualLabel.isNullOrBlank()) return false
+
+        if (actualLang?.equals(targetLang, ignoreCase = true) == true) return true
+        if (actualLabel?.contains(targetLang, ignoreCase = true) == true) return true
+
+        val targetMetadata: SubtitleHelper.LanguageMetadata? = SubtitleHelper.getLanguageDataFromCode(targetLang)
+            ?: SubtitleHelper.languages.find {
+                it.IETF_tag.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_1.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_2_B.equals(targetLang, ignoreCase = true) ||
+                it.ISO_639_3.equals(targetLang, ignoreCase = true) ||
+                it.languageName.equals(targetLang, ignoreCase = true) ||
+                it.nativeName.equals(targetLang, ignoreCase = true)
+            }
+
+        if (targetMetadata != null) {
+            val checkStrings: List<String> = listOfNotNull(
+                targetMetadata.IETF_tag,
+                targetMetadata.ISO_639_1,
+                targetMetadata.ISO_639_2_B,
+                targetMetadata.ISO_639_3,
+                targetMetadata.languageName,
+                targetMetadata.nativeName
+            )
+            if (actualLang != null && checkStrings.any { actualLang.equals(it, ignoreCase = true) || actualLang.startsWith("$it-") || actualLang.startsWith("${it}_") }) {
+                return true
+            }
+            if (actualLabel != null && checkStrings.any { actualLabel.contains(it, ignoreCase = true) }) {
+                return true
+            }
+        }
+        return false
+    }
+
     private fun setSubtitles(subtitle: SubtitleData?, userInitiated: Boolean): Boolean {
+        if (userInitiated) {
+            hasAutoSelectedSubtitlesForCurrentPlayback = true
+            preferredSubtitleDisabled = (subtitle == null)
+            preferredSubtitleId = subtitle?.getId()
+            preferredSubtitleName = subtitle?.name
+            preferredSubtitleLanguage = subtitle?.getIETF_tag() ?: subtitle?.languageCode
+
+            currentSeriesKey?.let { seriesKey ->
+                if (subtitle == null) {
+                    setKey(SHOW_SUB_DISABLED_PREFIX + seriesKey, true)
+                    setKey(SHOW_SUB_ID_PREFIX + seriesKey, "")
+                    setKey(SHOW_SUB_NAME_PREFIX + seriesKey, "")
+                    setKey(SHOW_SUB_LANG_PREFIX + seriesKey, "")
+                } else {
+                    setKey(SHOW_SUB_DISABLED_PREFIX + seriesKey, false)
+                    setKey(SHOW_SUB_ID_PREFIX + seriesKey, subtitle.getId())
+                    setKey(SHOW_SUB_NAME_PREFIX + seriesKey, subtitle.name)
+                    val langTag = subtitle.getIETF_tag() ?: subtitle.languageCode ?: ""
+                    setKey(SHOW_SUB_LANG_PREFIX + seriesKey, langTag)
+                }
+            }
+        }
         // If subtitle is changed and user initiated -> Save the language
         if (subtitle != currentSelectedSubtitles && userInitiated) {
             val subtitleLanguageTagIETF = if (subtitle == null) {
@@ -226,12 +456,67 @@ class GeneratorPlayer : FullScreenPlayer() {
         val tracks = player.getVideoTracks()
         playerBinding?.playerTracksBtt?.isVisible =
             tracks.allVideoTracks.size > 1 || tracks.allAudioTracks.size > 1
-        // Only set the preferred language if it is available.
-        // Otherwise, it may give some users audio track init failed!
-        if (tracks.allAudioTracks.any { it.language == preferredAudioTrackLanguage }) {
+        applyHierarchicalAudioTrackSelection(tracks)
+        updatePlayerInfo()
+    }
+
+    private fun applyHierarchicalAudioTrackSelection(tracks: CurrentTracks) {
+        val audioTracks = tracks.allAudioTracks
+        if (audioTracks.isEmpty()) return
+
+        // 1. Series / user-remembered track selection
+        val seriesKey = currentSeriesKey
+        val remId = preferredAudioId ?: seriesKey?.let { getKey<String>(SHOW_AUDIO_ID_PREFIX + it) }
+        val remLabel = preferredAudioLabel ?: seriesKey?.let { getKey<String>(SHOW_AUDIO_LABEL_PREFIX + it) }
+        val remLang = preferredAudioLanguage ?: seriesKey?.let { getKey<String>(SHOW_AUDIO_LANG_PREFIX + it) }
+
+        if (!remId.isNullOrEmpty() || !remLabel.isNullOrEmpty() || !remLang.isNullOrEmpty()) {
+            // Exact match (by id or label)
+            val exactMatch = audioTracks.find {
+                (!remId.isNullOrEmpty() && it.id == remId) ||
+                (!remLabel.isNullOrEmpty() && it.label?.equals(remLabel, ignoreCase = true) == true)
+            }
+            if (exactMatch != null) {
+                player.setPreferredAudioTrack(exactMatch.language, exactMatch.id, exactMatch.formatIndex)
+                return
+            }
+
+            // Same language match
+            if (!remLang.isNullOrEmpty()) {
+                val langMatch = audioTracks.find { matchesLanguage(it.language, it.label, remLang) }
+                if (langMatch != null) {
+                    player.setPreferredAudioTrack(langMatch.language, langMatch.id, langMatch.formatIndex)
+                    return
+                }
+            }
+        }
+
+        // 2. Global Primary Audio Language preference
+        val ctx = context ?: return
+        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val primaryAudio = settingsManager.getString(ctx.getString(R.string.primary_audio_language_key), null)
+        if (!primaryAudio.isNullOrBlank() && primaryAudio != "none") {
+            val primaryMatch = audioTracks.find { matchesLanguage(it.language, it.label, primaryAudio) }
+            if (primaryMatch != null) {
+                player.setPreferredAudioTrack(primaryMatch.language, primaryMatch.id, primaryMatch.formatIndex)
+                return
+            }
+        }
+
+        // 3. Global Secondary Audio Language preference
+        val secondaryAudio = settingsManager.getString(ctx.getString(R.string.secondary_audio_language_key), null)
+        if (!secondaryAudio.isNullOrBlank() && secondaryAudio != "none") {
+            val secondaryMatch = audioTracks.find { matchesLanguage(it.language, it.label, secondaryAudio) }
+            if (secondaryMatch != null) {
+                player.setPreferredAudioTrack(secondaryMatch.language, secondaryMatch.id, secondaryMatch.formatIndex)
+                return
+            }
+        }
+
+        // 4. Default / original stream audio track
+        if (preferredAudioTrackLanguage != null && audioTracks.any { it.language == preferredAudioTrackLanguage }) {
             player.setPreferredAudioTrack(preferredAudioTrackLanguage)
         }
-        updatePlayerInfo()
     }
 
     override fun playerStatusChanged() {
@@ -519,14 +804,23 @@ class GeneratorPlayer : FullScreenPlayer() {
         //  setEpisodes(viewModel.getAllMeta() ?: emptyList())
         setPlayerDimen(null)
         setTitle()
-        if (!sameEpisode)
+        if (!sameEpisode) {
             hasRequestedStamps = false
+            hasAutoSelectedSubtitlesForCurrentPlayback = false
+        }
 
         loadExtractorJob(link.first)
         // load player
         context?.let { ctx ->
             val (url, uri) = link
             val subtitles = viewModel.state.subtitles
+            val initialSub = (if (sameEpisode) currentSelectedSubtitles else null) ?: getAutoSelectSubtitle(
+                subtitles, settings = true, downloads = true
+            )
+            if (initialSub != null) {
+                currentSelectedSubtitles = initialSub
+                hasAutoSelectedSubtitlesForCurrentPlayback = true
+            }
             player.loadPlayer(
                 ctx,
                 sameEpisode,
@@ -536,9 +830,7 @@ class GeneratorPlayer : FullScreenPlayer() {
                     if (isNextEpisode) 0L else getPos()
                 },
                 subtitles,
-                (if (sameEpisode) currentSelectedSubtitles else null) ?: getAutoSelectSubtitle(
-                    subtitles, settings = true, downloads = true
-                ),
+                initialSub,
                 preview = true
             )
         }
@@ -1395,6 +1687,16 @@ class GeneratorPlayer : FullScreenPlayer() {
                     }
                     if (init) {
                         filteredLinks.getOrNull(sourceIndex)?.let {
+                            it.link.first?.let { extractorLink ->
+                                preferredVideoSource = extractorLink.source
+                                preferredVideoSourceName = extractorLink.name
+                                preferredVideoSourceQuality = extractorLink.quality
+                                currentSeriesKey?.let { seriesKey ->
+                                    setKey(SHOW_LINK_SOURCE_PREFIX + seriesKey, extractorLink.source)
+                                    setKey(SHOW_LINK_NAME_PREFIX + seriesKey, extractorLink.name)
+                                    setKey(SHOW_LINK_QUALITY_PREFIX + seriesKey, extractorLink.quality)
+                                }
+                            }
                             loadLink(it.link, true)
                         }
                     }
@@ -1547,6 +1849,17 @@ class GeneratorPlayer : FullScreenPlayer() {
                         currentTrack?.formatIndex,
                     )
 
+                    currentTrack?.let { track ->
+                        preferredAudioId = track.id
+                        preferredAudioLabel = track.label
+                        preferredAudioLanguage = track.language
+                        currentSeriesKey?.let { seriesKey ->
+                            setKey(SHOW_AUDIO_ID_PREFIX + seriesKey, track.id ?: "")
+                            setKey(SHOW_AUDIO_LABEL_PREFIX + seriesKey, track.label ?: "")
+                            setKey(SHOW_AUDIO_LANG_PREFIX + seriesKey, track.language ?: "")
+                        }
+                    }
+
                     val currentVideo = currentVideoTracks.getOrNull(videoIndex)
                     val width = currentVideo?.width ?: NO_VALUE
                     val height = currentVideo?.height ?: NO_VALUE
@@ -1616,8 +1929,8 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val links = viewModel.state.sortLinks(currentQualityProfile)
 
-        val firstAvailableLink = links.firstOrNull { it.shouldUseLink }?.link
-        if (firstAvailableLink == null) {
+        val availableLinks = links.filter { it.shouldUseLink && !viewModel.state.erroredLinks.contains(it.link) }
+        if (availableLinks.isEmpty()) {
             noLinksFound()
             return
         }
@@ -1625,7 +1938,8 @@ class GeneratorPlayer : FullScreenPlayer() {
         if (!isPlayerActive.compareAndSet(false, true)) {
             return
         }
-        loadLink(firstAvailableLink, false)
+        val preferredLink = findPreferredLink(availableLinks)
+        loadLink(preferredLink?.link ?: availableLinks.first().link, false)
         showPlayerMetadata()
     }
 
@@ -1812,57 +2126,156 @@ class GeneratorPlayer : FullScreenPlayer() {
         return sortSubs(subtitles).firstOrNull { it.matchesLanguageCode(langCode) }
     }
 
+    private fun isSubtitleAutoSelectNone(ctx: Context): Boolean {
+        val autoKey = getKey<String>(SUBTITLE_AUTO_SELECT_KEY) ?: preferredAutoSelectSubtitles
+        if (!autoKey.isNullOrBlank()) {
+            if (autoKey.equals("none", ignoreCase = true) ||
+                autoKey.equals(ctx.getString(R.string.none), ignoreCase = true) ||
+                autoKey.equals(ctx.getString(R.string.subtitles_none), ignoreCase = true)) {
+                return true
+            }
+        }
+        val settings = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val primary = settings.getString(ctx.getString(R.string.primary_sub_language_key), null)
+        return !primary.isNullOrBlank() && primary.equals("none", ignoreCase = true)
+    }
+
     private fun autoSelectFromSettings(): Boolean {
-        // auto select subtitle based on settings
-        val langCode = preferredAutoSelectSubtitles
-        val current = player.getCurrentPreferredSubtitle()
-        Log.i(TAG, "autoSelectFromSettings = $current")
-        context?.let { ctx ->
-            // Only use the player preferred subtitle if it matches the available language
-            if (current != null && (langCode == null || current.matchesLanguageCode(langCode))) {
-                if (setSubtitles(current, false)) {
+        val ctx = context ?: return false
+        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val availableSubs = viewModel.state.subtitles
+        if (availableSubs.isEmpty()) return false
+
+        // 0. User explicitly configured subtitles to "none": disable and never fall back
+        if (isSubtitleAutoSelectNone(ctx) || preferredAutoSelectSubtitles?.equals("none", ignoreCase = true) == true) {
+            setSubtitles(null, false)
+            player.saveData()
+            return true
+        }
+
+        // 1. Series / user-remembered subtitle selection
+        val seriesKey = currentSeriesKey
+        val isDisabled = preferredSubtitleDisabled || (seriesKey?.let { getKey<Boolean>(SHOW_SUB_DISABLED_PREFIX + it) } ?: false)
+        if (isDisabled) {
+            // User explicitly turned off subtitles for this series / session
+            return setSubtitles(null, false)
+        }
+
+        val remId = preferredSubtitleId ?: seriesKey?.let { getKey<String>(SHOW_SUB_ID_PREFIX + it) }
+        val remName = preferredSubtitleName ?: seriesKey?.let { getKey<String>(SHOW_SUB_NAME_PREFIX + it) }
+        val remLang = preferredSubtitleLanguage ?: seriesKey?.let { getKey<String>(SHOW_SUB_LANG_PREFIX + it) }
+
+        if (!remId.isNullOrEmpty() || !remName.isNullOrEmpty() || !remLang.isNullOrEmpty()) {
+            // First: exact ID or name match
+            val exactMatch = availableSubs.find {
+                (!remId.isNullOrEmpty() && it.getId() == remId) ||
+                (!remName.isNullOrEmpty() && it.name.equals(remName, ignoreCase = true))
+            }
+            if (exactMatch != null && setSubtitles(exactMatch, false)) {
+                player.saveData()
+                player.reloadPlayer(ctx)
+                player.handleEvent(CSPlayerEvent.Play)
+                return true
+            }
+
+            // Second: same language match
+            if (!remLang.isNullOrEmpty()) {
+                val langMatch = sortSubs(availableSubs).firstOrNull {
+                    it.matchesLanguageCode(remLang) || matchesLanguage(it.languageCode, it.originalName, remLang)
+                }
+                if (langMatch != null && setSubtitles(langMatch, false)) {
                     player.saveData()
                     player.reloadPlayer(ctx)
                     player.handleEvent(CSPlayerEvent.Play)
                     return true
                 }
-            } else if (!langCode.isNullOrEmpty()) {
-                getAutoSelectSubtitle(
-                    viewModel.state.subtitles, settings = true, downloads = false
-                )?.let { sub ->
-                    if (setSubtitles(sub, false)) {
-                        player.saveData()
-                        player.reloadPlayer(ctx)
-                        player.handleEvent(CSPlayerEvent.Play)
-                        return true
-                    }
-                }
             }
         }
+
+        // 2. Global Primary Subtitle Language Preference
+        val primarySub = settingsManager.getString(ctx.getString(R.string.primary_sub_language_key), null)
+            ?: preferredAutoSelectSubtitles
+            ?: "en"
+
+        if (primarySub.equals("none", ignoreCase = true) || preferredAutoSelectSubtitles?.equals("none", ignoreCase = true) == true) {
+            setSubtitles(null, false)
+            player.saveData()
+            return true
+        }
+
+        if (!primarySub.isNullOrBlank()) {
+            val primaryMatch = sortSubs(availableSubs).firstOrNull {
+                it.matchesLanguageCode(primarySub) || matchesLanguage(it.languageCode, it.originalName, primarySub)
+            }
+            if (primaryMatch != null && setSubtitles(primaryMatch, false)) {
+                player.saveData()
+                player.reloadPlayer(ctx)
+                player.handleEvent(CSPlayerEvent.Play)
+                return true
+            }
+        }
+
+        // 3. Global Secondary Subtitle Language Preference
+        val secondarySub = settingsManager.getString(ctx.getString(R.string.secondary_sub_language_key), null)
+        if (!secondarySub.isNullOrBlank() && secondarySub != "none") {
+            val secondaryMatch = sortSubs(availableSubs).firstOrNull {
+                it.matchesLanguageCode(secondarySub) || matchesLanguage(it.languageCode, it.originalName, secondarySub)
+            }
+            if (secondaryMatch != null && setSubtitles(secondaryMatch, false)) {
+                player.saveData()
+                player.reloadPlayer(ctx)
+                player.handleEvent(CSPlayerEvent.Play)
+                return true
+            }
+        }
+
+        // 4. Default / original stream subtitle
+        val current = player.getCurrentPreferredSubtitle()
+        if (current != null && setSubtitles(current, false)) {
+            player.saveData()
+            player.reloadPlayer(ctx)
+            player.handleEvent(CSPlayerEvent.Play)
+            return true
+        }
+
         return false
     }
 
-    private fun autoSelectFromDownloads() {
+    private fun autoSelectFromDownloads(): Boolean {
+        val ctx = context ?: return false
+        if (isSubtitleAutoSelectNone(ctx) ||
+            preferredAutoSelectSubtitles?.equals("none", ignoreCase = true) == true) {
+            return false
+        }
         if (player.getCurrentPreferredSubtitle() != null) {
-            return
+            return false
         }
         val sub =
             getAutoSelectSubtitle(viewModel.state.subtitles, settings = false, downloads = true)
-                ?: return
-        val ctx = context ?: return
+                ?: return false
         if (!setSubtitles(sub, false)) {
-            return
+            return false
         }
         player.saveData()
         player.reloadPlayer(ctx)
         player.handleEvent(CSPlayerEvent.Play)
+        return true
     }
 
     private fun autoSelectSubtitles() {
-        //Log.i(TAG, "autoSelectSubtitles")
+        if (hasAutoSelectedSubtitlesForCurrentPlayback) return
+        val ctx = context
+        if (ctx != null && (isSubtitleAutoSelectNone(ctx) || preferredAutoSelectSubtitles?.equals("none", ignoreCase = true) == true)) {
+            setSubtitles(null, false)
+            player.saveData()
+            hasAutoSelectedSubtitlesForCurrentPlayback = true
+            return
+        }
         safe {
-            if (!autoSelectFromSettings()) {
-                autoSelectFromDownloads()
+            if (autoSelectFromSettings()) {
+                hasAutoSelectedSubtitlesForCurrentPlayback = true
+            } else if (autoSelectFromDownloads()) {
+                hasAutoSelectedSubtitlesForCurrentPlayback = true
             }
         }
     }
@@ -2214,6 +2627,7 @@ class GeneratorPlayer : FullScreenPlayer() {
     fun releasePlayer() {
         player.release()
         currentSelectedSubtitles = null
+        hasAutoSelectedSubtitlesForCurrentPlayback = false
         currentSelectedLink = null
         isPlayerActive.set(false)
         binding?.overlayLoadingSkipButton?.isVisible = false
@@ -2379,12 +2793,19 @@ class GeneratorPlayer : FullScreenPlayer() {
             }
 
             safe {
-                if (!isPlayerActive.get() && viewModel.state.links.any { link ->
-                        getLinkPriority(currentQualityProfile, link.first) >=
-                                QualityDataHelper.AUTO_SKIP_PRIORITY
+                if (!isPlayerActive.get()) {
+                    val usableSorted = sortedLinks.filter { it.shouldUseLink && !viewModel.state.erroredLinks.contains(it.link) }
+                    val preferredMatch = findPreferredLink(usableSorted)
+                    if (preferredMatch != null) {
+                        // Fast-start on the preferred source as soon as it arrives
+                        startPlayer()
+                    } else if (usableSorted.any { link ->
+                            getLinkPriority(currentQualityProfile, link.link.first) >=
+                                    QualityDataHelper.AUTO_SKIP_PRIORITY
+                        }
+                    ) {
+                        startPlayer()
                     }
-                ) {
-                    startPlayer()
                 }
             }
 

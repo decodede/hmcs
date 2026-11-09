@@ -8907,6 +8907,7 @@ public final class com/lagradost/cloudstream3/utils/SubtitleHelper {
 	public final fun getIndexMapLanguageName ()Ljava/util/Map;
 	public final fun getIndexMapNativeName ()Ljava/util/Map;
 	public final fun getIndexMapOpenSubtitles ()Ljava/util/Map;
+	public final fun getLanguageDataFromCode (Ljava/lang/String;)Lcom/lagradost/cloudstream3/utils/SubtitleHelper$LanguageMetadata;
 	public final fun getLanguages ()Ljava/util/List;
 	public final fun getNameNextToFlagEmoji (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun getNameNextToFlagEmoji$default (Lcom/lagradost/cloudstream3/utils/SubtitleHelper;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;

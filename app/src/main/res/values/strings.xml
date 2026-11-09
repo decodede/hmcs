@@ -814,4 +814,17 @@
     </plurals>
     <string name="player_is_live">Live</string>
     <string name="installed_plugins">Installed plugins</string>
+
+    <!-- Preferred audio & subtitle tracks -->
+    <string name="pref_category_tracks">Preferred Audio &amp; Subtitle Sources</string>
+    <string name="primary_audio_track">Primary Audio Language</string>
+    <string name="primary_audio_track_des">Preferred audio stream language. Falls back to the Secondary language when unavailable.</string>
+    <string name="secondary_audio_track">Secondary Audio Language</string>
+    <string name="secondary_audio_track_des">Alternative audio stream language used when the Primary language is not available.</string>
+    <string name="primary_sub_track">Primary Subtitle Language</string>
+    <string name="primary_sub_track_des">Preferred subtitle language. Falls back to the Secondary language when unavailable.</string>
+    <string name="secondary_sub_track">Secondary Subtitle Language</string>
+    <string name="secondary_sub_track_des">Alternative subtitle language used when the Primary language is not available.</string>
+    <string name="source_original_or_default">Default / Stream Original</string>
+    <string name="source_none">None (Disabled)</string>
 </resources>

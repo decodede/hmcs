@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- KEYS -->
+    <string name="pref_category_tracks_key">pref_category_tracks_key</string>
+    <string name="primary_audio_language_key">primary_audio_language_key</string>
+    <string name="secondary_audio_language_key">secondary_audio_language_key</string>
+    <string name="primary_sub_language_key">primary_sub_language_key</string>
+    <string name="secondary_sub_language_key">secondary_sub_language_key</string>
     <string name="search_providers_list_key">search_providers_list</string>
     <string name="locale_key">app_locale</string>
     <string name="search_types_list_key">search_type_list</string>

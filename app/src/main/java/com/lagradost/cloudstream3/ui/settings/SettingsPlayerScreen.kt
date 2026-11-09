@@ -21,6 +21,7 @@ import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.getFold
 import com.lagradost.cloudstream3.ui.subtitles.ChromecastSubtitlesFragment
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream4.compose.EMULATOR
 import com.lagradost.cloudstream4.compose.PHONE
 import com.lagradost.cloudstream4.compose.TV
@@ -60,6 +61,18 @@ object SettingsPlayerScreen : SearchableSettings {
             }
         }
 
+        val defaultSourcesText = stringResource(R.string.source_original_or_default)
+        val noneText = stringResource(R.string.source_none)
+        val languageEntries = remember(context) {
+            val list = mutableListOf("" to defaultSourcesText, "none" to noneText)
+            list.addAll(
+                SubtitleHelper.languages
+                    .map { it.IETF_tag to it.nameNextToFlagEmoji() }
+                    .sortedBy { it.second.substringAfter("\u00a0").lowercase() }
+            )
+            list.toMap()
+        }
+
         return persistentListOf(
             Preference.PreferenceGroup(
                 title = stringResource(R.string.pref_category_subtitles),
@@ -78,6 +91,39 @@ object SettingsPlayerScreen : SearchableSettings {
                         onClick = {
                             ChromecastSubtitlesFragment.push(activity, false)
                         }),
+                ),
+            ),
+            Preference.PreferenceGroup(
+                title = stringResource(R.string.pref_category_tracks),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.ListPreference(
+                        preference = settings.player.primaryAudioLanguage,
+                        title = stringResource(R.string.primary_audio_track),
+                        subtitle = stringResource(R.string.primary_audio_track_des),
+                        icon = painterResource(R.drawable.audio_capture_24px),
+                        entries = languageEntries,
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        preference = settings.player.secondaryAudioLanguage,
+                        title = stringResource(R.string.secondary_audio_track),
+                        subtitle = stringResource(R.string.secondary_audio_track_des),
+                        icon = painterResource(R.drawable.audio_capture_24px),
+                        entries = languageEntries,
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        preference = settings.player.primarySubLanguage,
+                        title = stringResource(R.string.primary_sub_track),
+                        subtitle = stringResource(R.string.primary_sub_track_des),
+                        icon = painterResource(R.drawable.subtitles_gear_24px),
+                        entries = languageEntries,
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        preference = settings.player.secondarySubLanguage,
+                        title = stringResource(R.string.secondary_sub_track),
+                        subtitle = stringResource(R.string.secondary_sub_track_des),
+                        icon = painterResource(R.drawable.subtitles_gear_24px),
+                        entries = languageEntries,
+                    ),
                 ),
             ),
             Preference.PreferenceGroup(

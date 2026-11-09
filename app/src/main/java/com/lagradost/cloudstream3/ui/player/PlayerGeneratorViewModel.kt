@@ -25,9 +25,11 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.collections.immutable.toPersistentSet
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.Contract
 import java.util.concurrent.ConcurrentHashMap
 
@@ -257,7 +259,7 @@ class PlayerGeneratorViewModel : ViewModel() {
     fun loadLinksPrev() {
         Log.i(TAG, "loadLinksPrev")
         if (generator?.hasPrev(episodeIndex) == true) {
-            episodeIndex += 1
+            episodeIndex -= 1
             loadLinks()
         }
     }
@@ -404,26 +406,28 @@ class PlayerGeneratorViewModel : ViewModel() {
             )
         }
 
-        currentJob = viewModelScope.launchSafe {
+        currentJob = viewModelScope.launchSafe(Dispatchers.IO) {
             // Load more data
             val loadingState = safeApiCall {
-                generator?.generateLinks(
-                    sourceTypes = sourceTypes,
-                    clearCache = forceClearCache,
-                    callback = { link ->
-                        if (isActive)
-                            modifyState {
-                                add(link)
-                            }
-                    },
-                    isCasting = false,
-                    offset = index,
-                    subtitleCallback = { link ->
-                        if (isActive && isValidSubtitle(link))
-                            modifyState {
-                                add(link)
-                            }
-                    })
+                withTimeoutOrNull(60_000L) { // Bound total source-resolution time to 1 minute
+                    generator?.generateLinks(
+                        sourceTypes = sourceTypes,
+                        clearCache = forceClearCache,
+                        callback = { link ->
+                            if (isActive)
+                                modifyState {
+                                    add(link)
+                                }
+                        },
+                        isCasting = false,
+                        offset = index,
+                        subtitleCallback = { link ->
+                            if (isActive && isValidSubtitle(link))
+                                modifyState {
+                                    add(link)
+                                }
+                        })
+                }
                 Unit
             }
 
