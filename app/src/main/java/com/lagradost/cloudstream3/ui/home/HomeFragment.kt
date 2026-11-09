@@ -287,7 +287,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
             asian: Chip?,
             livestream: Chip?,
             torrent: Chip?,
-            nsfw: Chip?,
             others: Chip?,
         ): List<Pair<Chip?, List<TvType>>> {
             // This list should be same order as home screen to aid navigation
@@ -300,7 +299,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                 Pair(docs, listOf(TvType.Documentary)),
                 Pair(livestream, listOf(TvType.Live)),
                 Pair(torrent, listOf(TvType.Torrent)),
-                Pair(nsfw, listOf(TvType.NSFW)),
                 Pair(others, listOf(TvType.Others)),
             )
         }
@@ -314,7 +312,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
             header.homeSelectAsian,
             header.homeSelectLivestreams,
             header.homeSelectTorrents,
-            header.homeSelectNsfw,
             header.homeSelectOthers
         )
 

@@ -143,7 +143,7 @@ object SettingsGeneralScreen : SearchableSettings {
                     preference = settings.provider.preferredMedia,
                     entries = TvType.entries.associate {
                         it.ordinal.toString() to stringResource(it.toStringRes())
-                    }
+                    }.filterKeys { it != TvType.NSFW.ordinal.toString() }
                         // Ok this looks strange af, but we do this to avoid double movie
                         .toPersistentMap().remove(TvType.AnimeMovie.ordinal.toString()), onValueChanged = { diff ->
                         if(diff.contains(TvType.Movie.ordinal.toString())) {

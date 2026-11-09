@@ -681,8 +681,8 @@ class ExtensionsViewModel2(
              * Moreover, we only filter remove plugins, as you should always have access to "local"
              * plugins
              * */
-            val includeNSFW =
-                settings.provider.preferredMedia.get().contains(TvType.NSFW.ordinal.toString())
+            // HMCS: NSFW plugin discovery is removed; always exclude adult plugins
+            val includeNSFW = false
             val filteredPluginsFetched = if (includeNSFW) {
                 pluginsFetched
             } else {

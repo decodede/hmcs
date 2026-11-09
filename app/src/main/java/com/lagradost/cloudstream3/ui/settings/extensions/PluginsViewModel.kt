@@ -201,9 +201,8 @@ class PluginsViewModel : ViewModel() {
     }
 
     private suspend fun updatePluginListPrivate(context: Context, repositories: List<RepositoryData>) {
-        val isAdult = PreferenceManager.getDefaultSharedPreferences(context)
-            .getStringSet(context.getString(R.string.prefer_media_type_key), emptySet())
-            ?.contains(TvType.NSFW.ordinal.toString()) == true
+        // HMCS: NSFW plugin discovery is removed; adult plugins are never listed
+        val isAdult = false
 
         val plugins = repositories.flatMap { repositoryUrl ->
             getPlugins(repositoryUrl)

@@ -68,7 +68,7 @@ object SettingsProvidersScreen : SearchableSettings {
             preference = settings.provider.preferredMedia,
             entries = TvType.entries.associate {
                     it.ordinal.toString() to stringResource(it.toStringRes())
-                }),
+                }.filterKeys { it != TvType.NSFW.ordinal.toString() }),
             Preference.PreferenceItem.MultiSelectListPreference(
             title = stringResource(R.string.display_subbed_dubbed_settings),
             icon = painterResource(R.drawable.audio_capture_24px),

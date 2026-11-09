@@ -81,7 +81,6 @@ import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
@@ -510,7 +509,6 @@ object ExtensionsScreen : Screen {
             TvType.Podcast,
             TvType.Music
         ),
-        R.string.nsfw_singular to persistentListOf(TvType.NSFW),
         R.string.others to persistentListOf(
             TvType.CustomMedia,
             TvType.Video,
@@ -1111,13 +1109,6 @@ object ExtensionsScreen : Screen {
                                     modifier = Modifier
                                         .secondaryItemAlpha(),
                                     style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            if (plugin.info.tvTypes.contains(TvType.NSFW)) {
-                                Text(
-                                    text = "18+",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colorResource(R.color.adultColor)
                                 )
                             }
                         }

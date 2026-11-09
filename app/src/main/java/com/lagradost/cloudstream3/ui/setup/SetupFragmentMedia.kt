@@ -31,7 +31,7 @@ class SetupFragmentMedia : BaseFragment<FragmentSetupMediaBinding>(
             val arrayAdapter =
                 ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
 
-            val sortedTypes = enumValues<TvType>().sorted()
+            val sortedTypes = enumValues<TvType>().sorted().filter { it != TvType.NSFW }
 
             arrayAdapter.addAll(sortedTypes.map { it.name })
             binding.apply {
