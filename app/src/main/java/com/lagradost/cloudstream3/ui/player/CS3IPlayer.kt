@@ -17,6 +17,7 @@ import androidx.annotation.MainThread
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
+import androidx.media3.common.C
 import androidx.media3.common.C.TIME_UNSET
 import androidx.media3.common.C.TRACK_TYPE_AUDIO
 import androidx.media3.common.C.TRACK_TYPE_TEXT
@@ -102,6 +103,8 @@ import com.lagradost.cloudstream3.utils.CLEARKEY_DRM_UUID
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
+import com.lagradost.cloudstream3.utils.DeviceProfile
+import com.lagradost.cloudstream3.utils.DeviceTier
 import com.lagradost.cloudstream3.utils.DrmExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkPlayList
@@ -1092,6 +1095,32 @@ class CS3IPlayer : IPlayer {
         /** External audio tracks to merge with the video */
         audioSources: List<MediaSource> = emptyList()
     ): ExoPlayer {
+        // Hardware-adaptive buffering: low/potato devices get small buffers to avoid OOM
+        val playerConfig = DeviceProfile.getPlayerBufferConfig(context)
+        val isPotato = DeviceProfile.isUltraPotato(context)
+
+        // Hard ceiling on how many bytes ExoPlayer may buffer in RAM
+        val maxAllowedBufferBytes = when (DeviceProfile.tier(context)) {
+            DeviceTier.LOW -> if (isPotato) 8 * 1024 * 1024 else 24 * 1024 * 1024
+            DeviceTier.MID -> 64 * 1024 * 1024
+            DeviceTier.HIGH -> 256 * 1024 * 1024
+        }
+        val targetBufferBytes = when {
+            cacheSize > 0 -> cacheSize.coerceAtMost(maxAllowedBufferBytes.toLong()).toInt()
+            else -> playerConfig.targetBufferBytes
+        }
+        val backBufferMs = playerConfig.backBufferMs
+        val rawMinBufferMs = playerConfig.minBufferMs
+        val rawMaxBufferMs = when {
+            videoBufferMs > 0 -> videoBufferMs.toInt()
+            else -> playerConfig.maxBufferMs
+        }
+        // Enforce DefaultLoadControl invariants: playback <= rebuffer <= min <= max buffer
+        val playbackMs = playerConfig.bufferForPlaybackMs
+        val rebufferMs = maxOf(playbackMs, minOf(playerConfig.bufferForPlaybackAfterRebufferMs, 2_500))
+        val minBufferMs = maxOf(rebufferMs, rawMinBufferMs)
+        val maxBufferMs = maxOf(minBufferMs, rawMaxBufferMs)
+
         val exoPlayerBuilder =
             ExoPlayer.Builder(context)
                 .setMediaSourceFactory(
@@ -1132,6 +1161,7 @@ class CS3IPlayer : IPlayer {
                     val factory = if (isSoftwareDecodingEnabled) {
                         FixedNextRenderersFactory(context, compressor).apply {
                             setEnableDecoderFallback(true)
+                            forceEnableMediaCodecAsynchronousQueueing()
                             setExtensionRendererMode(
                                 if (isSoftwareDecodingPreferred)
                                     DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
@@ -1143,7 +1173,10 @@ class CS3IPlayer : IPlayer {
                         val activeCompressor = compressor
                         if (activeCompressor == null) {
                             // no nextlib = EXTENSION_RENDERER_MODE_OFF, no compressor = fully default sink
-                            DefaultRenderersFactory(context)
+                            DefaultRenderersFactory(context).apply {
+                                setEnableDecoderFallback(true)
+                                forceEnableMediaCodecAsynchronousQueueing()
+                            }
                         } else {
                             object : DefaultRenderersFactory(context) {
                                 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -1156,6 +1189,9 @@ class CS3IPlayer : IPlayer {
                                     .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
                                     .setAudioProcessors(arrayOf<AudioProcessor>(activeCompressor))
                                     .build()
+                            }.apply {
+                                setEnableDecoderFallback(true)
+                                forceEnableMediaCodecAsynchronousQueueing()
                             }
                         }
                     }
@@ -1261,53 +1297,52 @@ class CS3IPlayer : IPlayer {
                 .setSeekParameters(SeekParameters(toleranceBeforeUs, toleranceAfterUs))
                 .setLoadControl(
                     DefaultLoadControl.Builder()
-                        .setTargetBufferBytes(
-                            if (cacheSize <= 0) {
-                                DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES
-                            } else {
-                                if (cacheSize > Int.MAX_VALUE) Int.MAX_VALUE else cacheSize.toInt()
-                            }
-                        )
+                        .setTargetBufferBytes(targetBufferBytes)
+                        .setPrioritizeTimeOverSizeThresholds(false)
                         .setBackBuffer(
-                            30000,
+                            backBufferMs,
                             true
                         )
                         .setBufferDurationsMs(
-                            DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                            if (videoBufferMs <= 0) {
-                                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS
-                            } else {
-                                videoBufferMs.toInt()
-                            },
-                            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+                            minBufferMs,
+                            maxBufferMs,
+                            playbackMs,
+                            rebufferMs
                         ).build()
                 )
+                // Never switch display modes behind the user's back (TV-safe default)
+                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
 
         // Because "Java rules" the media3 team hates to do open classes so we have to copy paste the entire thing to add a custom extractor
         // This includes the updated MKV extractor that enabled seeking in formats where the seek information is at the back of the file
         val extractorFactor = UpdatedDefaultExtractorsFactory()
             .setFragmentedMp4ExtractorFlags(FragmentedMp4Extractor.FLAG_MERGE_FRAGMENTED_SIDX)
 
-        // Create an online connection with cache for all online sources
+        // Create an online connection with disk cache only when a cache size is configured (> 0).
+        // On potato devices the disk cache is bypassed entirely to avoid SQLite locking and flash thrashing.
+        val effectiveDiskCacheSize = if (DeviceProfile.isUltraPotato(context)) 0L else simpleCacheSize
         val dataSourceFactory = if (onlineSource == null) {
             null
         } else {
-            if (simpleCache == null)
-                simpleCache = getCache(context, simpleCacheSize)
+            if (effectiveDiskCacheSize > 0) {
+                if (simpleCache == null)
+                    simpleCache = getCache(context, effectiveDiskCacheSize)
 
-            val cacheFactory = CacheDataSource.Factory().apply {
-                simpleCache?.let { setCache(it) }
-                setUpstreamDataSourceFactory(onlineSource)
+                val cacheFactory = CacheDataSource.Factory().apply {
+                    simpleCache?.let { setCache(it) }
+                    setUpstreamDataSourceFactory(onlineSource)
+                }
+                cacheFactory
+            } else {
+                onlineSource
             }
-            cacheFactory
         }
 
-        val defaultMediaSourceFactory = if (dataSourceFactory != null) {
+        val defaultMediaSourceFactory = (if (dataSourceFactory != null) {
             DefaultMediaSourceFactory(dataSourceFactory, extractorFactor)
         } else {
             DefaultMediaSourceFactory(context, extractorFactor)
-        }
+        }).setLiveTargetOffsetMs(PREFERRED_LIVE_OFFSET)
 
         // If there is only one item then treat it as normal, if multiple: concatenate the items.
         val videoMediaSource = if (mediaItemSlices.size == 1) {

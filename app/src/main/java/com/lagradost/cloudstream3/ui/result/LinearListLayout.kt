@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.FocusDirection
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.DeviceProfile
 
 const val FOCUS_SELF = View.NO_ID - 1
 const val FOCUS_INHERIT = FOCUS_SELF - 1
@@ -38,6 +39,11 @@ fun RecyclerView?.setLinearListLayout(
 
 open class LinearListLayout(context: Context?) :
     LinearLayoutManager(context) {
+
+    init {
+        // Let the RenderThread GapWorker pre-bind horizontal rows on idle frames
+        initialPrefetchItemCount = DeviceProfile.getInitialPrefetchItemCount(context)
+    }
 
     var nextFocusLeft: Int = View.NO_ID
     var nextFocusRight: Int = View.NO_ID

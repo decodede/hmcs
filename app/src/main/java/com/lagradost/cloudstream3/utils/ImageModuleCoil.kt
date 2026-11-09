@@ -3,7 +3,6 @@ package com.lagradost.cloudstream3.utils
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import android.util.Log
 import android.widget.ImageView
@@ -36,42 +35,6 @@ import java.nio.ByteBuffer
 
 object ImageLoader {
     private const val TAG = "CoilImgLoader"
-    internal fun buildImageLoader(context: PlatformContext): ImageLoader {
-        val isBrokenHardware = hasPotentialBrokenHardware()
-        return ImageLoader.Builder(context)
-            .crossfade(200)
-            .allowHardware(SDK_INT >= 28 && !isBrokenHardware)
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .networkCachePolicy(CachePolicy.ENABLED)
-            .memoryCache {
-                MemoryCache.Builder().maxSizePercent(context, 0.1)//10 % of heap for mem-cache
-                    .strongReferencesEnabled(false)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("cs3_image_cache").toOkioPath())
-                    .maxSizeBytes(512L * 1024 * 1024) // 512 MB
-                    .maxSizePercent(0.04) // max 4% of storage for disk caching
-                    .build()
-            }
-            /** Pass interceptors with care, unnecessary passing tokens to servers
-            or image hosting services causes unauthorized exceptions **/
-            .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { buildDefaultClient(context) }))
-                if (isBrokenHardware) {
-                    add(BitmapFactoryDecoder.Factory())
-                } // sw decoder
-            }
-            .apply {
-                if (isBrokenHardware) { // coil will auto choose optimal config on modern device
-                    bitmapConfig(Bitmap.Config.ARGB_8888)
-                }
-                setupCoilLogger()
-            }
-            .build()
-    }
-
     /** DebugLogger on debug builds which won't slow down release builds & use EventListener for
     Errors on release builds. **/
     internal fun ImageLoader.Builder.setupCoilLogger() {
@@ -82,12 +45,49 @@ object ImageLoader {
                 override fun onError(request: ImageRequest, result: ErrorResult) {
                     super.onError(request, result)
                     Log.e(TAG, "Image load error: ${result.throwable.message ?: result.throwable}")
-                    Log.e(TAG, "  URL: ${request.data}")
-                    Log.e(TAG, "  allowHardware: ${request.allowHardware}")
-                    Log.e(TAG, "  hardware: ${Build.HARDWARE}, board: ${Build.BOARD}")
                 }
             })
         }
+    }
+
+    internal fun buildImageLoader(context: PlatformContext): ImageLoader {
+        val isBrokenHardware = hasPotentialBrokenHardware()
+        val tier = DeviceProfile.tier(context)
+        val config = DeviceProfile.getCoilConfig(context)
+        return ImageLoader.Builder(context)
+            .crossfade(config.crossfadeMs)
+            .allowHardware(SDK_INT >= 28 && !isBrokenHardware && config.allowHardwareBitmaps)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .memoryCache {
+                MemoryCache.Builder().maxSizePercent(context, config.memoryCachePercent)
+                    .strongReferencesEnabled(false)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("cs3_image_cache").toOkioPath())
+                    .maxSizeBytes(config.diskCacheMaxBytes)
+                    .build()
+            }
+            /** Pass interceptors with care, unnecessary passing tokens to servers
+            or image hosting services causes unauthorized exceptions **/
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { buildDefaultClient(context) }))
+                if (isBrokenHardware || tier == DeviceTier.LOW) {
+                    add(BitmapFactoryDecoder.Factory())
+                } // sw decoder on low/broken-hardware devices
+            }
+            .apply {
+                if (config.useRgb565) {
+                    // 50% less bitmap memory on ultra-low devices
+                    bitmapConfig(Bitmap.Config.RGB_565)
+                } else if (isBrokenHardware) { // coil will auto choose optimal config on modern device
+                    bitmapConfig(Bitmap.Config.ARGB_8888)
+                }
+                setupCoilLogger()
+            }
+            .build()
     }
 
     /** coil's built in loader attached w/ global synchronized instance **/
@@ -115,17 +115,7 @@ object ImageLoader {
         }
     }
 
-    private fun hasPotentialBrokenHardware(): Boolean {
-        val hardware = Build.HARDWARE?.lowercase() ?: ""
-        val board = Build.BOARD?.lowercase() ?: ""
-        val model = Build.MODEL?.lowercase() ?: ""
-        val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
-        val allwinnerPatterns = listOf("sun50iw9", "h713", "allwinner", "sunxi")
-        val problematicModels =
-            listOf("hy320", "hy300", "a10plus", "magcubic", "sinoy", "android tv box")
-        return allwinnerPatterns.any { it in hardware || it in board || it in manufacturer } ||
-                problematicModels.any { it in model }
-    }
+    private fun hasPotentialBrokenHardware(): Boolean = DeviceProfile.hasBrokenHardwareGpu()
 
     /** TYPE_SAFE_LOADERS **/
     fun ImageView.loadImage(

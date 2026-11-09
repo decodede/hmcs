@@ -87,7 +87,8 @@ android {
     signingConfigs {
         // We just use SIGNING_KEY_ALIAS here since it won't change
         // so won't kill the configuration cache.
-        if (System.getenv("SIGNING_KEY_ALIAS") != null) {
+        // HMCS: treat blank secrets as "not configured" (CI passes empty strings when unset).
+        if (!System.getenv("SIGNING_KEY_ALIAS").isNullOrBlank()) {
             create("prerelease") {
                 val tmpFilePath = System.getProperty("user.home") + "/work/_temp/keystore/"
                 val prereleaseStoreFile: File? = File(tmpFilePath).listFiles()?.first()
@@ -151,6 +152,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // HMCS: use the configured release keystore when present,
+            // otherwise sign with the public debug key so CI-built APKs stay installable.
+            signingConfig = if (!System.getenv("SIGNING_KEY_ALIAS").isNullOrBlank()) {
+                signingConfigs.getByName("prerelease")
+            } else {
+                logger.warn("SIGNING_KEY_ALIAS not set; signing release with the public debug keystore")
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isDebuggable = true

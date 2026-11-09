@@ -9,12 +9,16 @@ import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ignoreAllSSLErrors
 import okhttp3.Cache
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Headers
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import org.conscrypt.Conscrypt
 import java.io.File
 import java.security.Security
+import java.util.concurrent.TimeUnit
 
 // Backwards compatible constructor, mark as deprecated later
 fun Requests.initClient(context: Context) {
@@ -38,7 +42,25 @@ fun buildDefaultClient(context: Context, ignoreSSL: Boolean = false): OkHttpClie
     
     val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
     val dns = settingsManager.getInt(context.getString(R.string.dns_key), 0)
+
+    // Scale HTTP client to device tier (potato devices get fewer connections and smaller caches)
+    val netConfig = com.lagradost.cloudstream3.utils.DeviceProfile.getNetworkConfig(context)
     val baseClient = OkHttpClient.Builder()
+        .dispatcher(Dispatcher().apply {
+            maxRequests = netConfig.maxRequests
+            maxRequestsPerHost = netConfig.maxRequestsPerHost
+        })
+        .connectionPool(
+            ConnectionPool(
+                netConfig.maxIdleConnections,
+                netConfig.keepAliveDurationMinutes,
+                TimeUnit.MINUTES
+            )
+        )
+        .connectTimeout(netConfig.connectTimeoutSeconds, TimeUnit.SECONDS)
+        .readTimeout(netConfig.readTimeoutSeconds, TimeUnit.SECONDS)
+        .writeTimeout(netConfig.readTimeoutSeconds, TimeUnit.SECONDS)
+        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .followRedirects(true)
         .followSslRedirects(true)
         .apply {
@@ -51,7 +73,7 @@ fun buildDefaultClient(context: Context, ignoreSSL: Boolean = false): OkHttpClie
             // The server response dictates if and when stuff should be cached.
             Cache(
                 directory = File(context.cacheDir, "http_cache"),
-                maxSize = 50L * 1024L * 1024L // 50 MiB
+                maxSize = netConfig.diskCacheMaxBytes
             )
         ).apply {
             when (dns) {
