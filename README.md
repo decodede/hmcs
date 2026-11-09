@@ -1,112 +1,65 @@
-# CloudStream
+# HMCS
 
-**⚠️ Warning: By default, this app doesn't provide any video sources; you have to install extensions to add functionality to the app.**
-<p align="left"><a href="https://github.com/recloudstream/cloudstream/releases/download/pre-release/app-prerelease-release.apk"><img src=".github/images/download-cloudstream-pre.png" alt="Download Cloudstream Pre-Release" width=430/></a></p>
+Lightweight fork of [recloudstream/cloudstream](https://github.com/recloudstream/cloudstream)
+tuned for ultra-low-end Android TV boxes (1 GB RAM, 4 GB storage — Allwinner/Rockchip sticks,
+Android Go, old Fire TV sticks). Same features, far smaller appetite: adaptive buffers,
+tier-scaled caches, software-decode fallback, and a previous-episode bugfix.
 
-[![Discord](https://invidget.switchblade.xyz/5Hus6fM)](https://discord.gg/5Hus6fM)
+## Install
 
+Grab the latest APK from [Releases](https://github.com/decodede/hmcs/releases):
 
-## Table of Contents: 
-+ [About Us:](#about_us)
-+ [Installation Steps:](#install_rules)
-+ [Contributing:](#contributing)
-+ [Issues:](#issues)
-  + [Bugs Reports:](#bug_report)
-  + [Enhancement:](#enhancment)
-+ [Extension Development:](#extensions)
-+ [Language Support:](#languages)
-+ [Further Sources](#contact_and_sources)
+- `app-arm64-v8a-*.apk` — most 2016+ TVs and boxes
+- `app-armeabi-v7a-*.apk` — old 32-bit boxes
+- `app-universal-*.apk` — not sure? take this one
 
+Sideload with a file manager or a phone. Builds are signed with a **public debug keystore**
+(or your own via `SIGNING_KEY_*` secrets). The package id is `com.lagradost.cloudstream3.hmcs`,
+so it installs **alongside** an upstream CloudStream install instead of colliding with it.
 
-<a id="about_us"></a>
+First run: Settings → Extensions → add a repository → pick providers → play.
 
-## About us: 
+## What HMCS changes vs upstream
 
-**CloudStream is a media center that prioritizes and emphasizes complete freedom and flexibility for users and developers.** 
+- **Built to survive 1 GB RAM**: device-tiered ExoPlayer buffers (6 MB target on potato
+  boxes), RGB_565 posters, software-decode + decoder fallback, tier-scaled Coil/OkHttp limits,
+  pinned `.so` mmap packaging (no extraction doubling).
+- **Preferred Audio & Subtitle Sources** in Settings → Player: primary/secondary audio and
+  subtitle languages; per-series memory of your source/audio/subtitle picks; automatic
+  dub-vs-original source preference; player fast-starts when your preferred source arrives.
+- **No NSFW/18+ anywhere**: toggles, badges and filters removed; adult plugins never listed.
+- **No security gate breaking stream links** (SafeDns/permissive-SSL/sandboxing from forks are
+  deliberately not ported). Plain upstream link handling.
+- Bugfix: Previous-episode button no longer skips forward.
 
-CloudStream is an extension-based multimedia player with tracking support. There are extensions to view videos from: 
+Full list + rationale: [CHANGELOG.md](CHANGELOG.md)
 
-+ [Librevox (audio-books)](https://librivox.org/) 
-+ [Youtube](https://www.youtube.com/)
-+ [Twitch](https://www.twitch.tv/)
-+ [iptv-org (A collection of publicly available IPTV (Internet Protocol television) channels from all over the world.)](https://github.com/iptv-org/iptv) 
-+ [nginx](https://nginx.org/)
-+ And more... 
+## Building
 
+Needs JDK 17 and the Android SDK. `./gradlew assembleStableRelease`, APKs land in
+`app/build/outputs/apk/stable/release/`. Releases are built and published automatically:
+push a tag `v*` or run the `Release` workflow manually.
 
-**Please don't create illegal extensions or use any that host any copyrighted media.** For more details about our stance on the DMCA and EUCD, you can read about it on our organization: [reCloudStream](https://github.com/recloudstream)
+## Compose?
 
-#### Important Copyright Note: 
+The Views UI stays. Upstream is ~5% Compose; a blind rewrite cannot be device-verified and
+would risk exactly the crashes this fork targets. Settings screens stay Compose as upstream has them.
 
-Our documentation is unmaintained and open to contributions; therefore, apps and sources, extensions in recommended sources, and recommended apps are not officially moderated or endorsed by CloudStream; if you or another copyright owner identify an extension that breaches your copyright, please let us know. 
+## Troubleshooting: "No Links Found" / 2001, 2002, 2003, 2004
 
+These codes are ~90% source/network problems, not app bugs. In order:
 
-#### Features:
-+ **AdFree**, No ads whatsoever
-+ No tracking/analytics
-+ Bookmarks
-+ Phone and TV support
-+ Chromecast
-+ Extension system for personal customization
+1. Settings → General → DNS over HTTPS → Cloudflare or Google, then restart the app.
+2. Check the box's date and time. Wrong clock = every HTTPS request fails.
+3. Clear cache: Settings → Apps → HMCS → Storage → Clear cache.
+4. Update extensions; reinstall the one that fails; check the provider's own repo for status.
+5. ISP blocking the host? Use a VPN.
+6. URL works in a browser but not in any app: CDN requires Referer/UA headers the extension
+   doesn't send, or returns an HTML challenge. Pick another source/mirror.
+7. Very large (3+ GB) files on 1 GB RAM: force a lower quality, or use an external player
+   (mpv/VLC) — see Settings → Player → External player. mpv handles buffering on the C side
+   and won't OOM the app's Java heap.
 
-
-<a id="install_rules"></a>
-
-## Installation: 
-
-Our documentation provides the steps to install and configure CloudStream for your streaming needs.
-
-[Getting Started With CloudStream:](https://recloudstream.github.io/csdocs/)
-
-<a id="contributing"></a>
-
-## Contributing:
-We **happily** accept any contributions to our project. To find out where you can start contributing towards the project, please look [at our issues tab](/cloudstream/issues)
-
-
-
-<a id="issues"></a> 
- 
-### Issues: 
-While we **actively** accept issues and pull requests, we do require you fill out an [template](https://github.com/recloudstream/cloudstream/issues/new/choose) for issues. These include the following:
-
-<a id="bug_report"></a>
-
-- [Bug Report Template: ](https://github.com/recloudstream/cloudstream/issues/new?assignees=&labels=bug&projects=&template=application-bug.yml)
-  - For bug reports, we want as much info as possible, including your downloaded version of CloudeStream, device and updated version (if possible, current API),
-    expected behavior of the program, and the actual behavior that the program did, most importantly we require clear, reproducible steps of the bug. If your bug can't be       reproduced, it is unlikely we'll work on your issue.
-    
-<a id="enhancment"></a>
-  
-- [Feature Request Template: ](https://github.com/recloudstream/cloudstream/issues/new?assignees=&labels=enhancement&projects=&template=feature-request.yml)
-  - Before adding a feature request, please check to see if a feature request already has been requested.  
-
-
-### Extensions:
- 
-**Further details on creating extensions for CloudStream are found in our documentation.**
-
-[Guide: For Extension Developers](https://recloudstream.github.io/csdocs/devs/gettingstarted/) 
-
-<a id="contact_and_sources"></a>
-
-## Further Sources: 
-
-As well as providing clear install steps, our [website](https://dweb.link/ipns/cloudstream.on.fleek.co/) includes a wide variety of other tools, such as: 
-- [Troubleshooting](https://recloudstream.github.io/csdocs/troubleshooting/)
-- [Further CloudStream Repositories](https://recloudstream.github.io/csdocs/repositories/) 
-- Set-Up for other devices, such as:
-  - [Android TV](https://recloudstream.github.io/csdocs/other-devices/tv/)
-  - [Windows](https://recloudstream.github.io/csdocs/other-devices/windows/)
-  - [Linux](https://recloudstream.github.io/csdocs/other-devices/linux/)
-- And more...
-
-<a id="languages"> </a>  
-
-### Supported languages:
-
-Even if you can't contribute to the code or documentation, we always look for those who can contribute to translation and language support. Your contribution is exceptionally appreciated; you can check our translation from the figure below. 
-
-<a href="https://hosted.weblate.org/engage/cloudstream/">
-  <img src="https://hosted.weblate.org/widgets/cloudstream/-/app/multi-auto.svg" alt="Translation status" />
-</a>
+License: GPL-3.0 (same as upstream). Fork credit: upstream CloudStream team,
+plus [abir614/cloudstream](https://github.com/abir614/cloudstream) whose device-profile and
+buffer work we adapted (without his NSFW AI or security gate).

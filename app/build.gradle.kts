@@ -175,6 +175,9 @@ android {
     productFlavors {
         create("stable") {
             dimension = "state"
+            // HMCS: distinct application id so this fork can be installed
+            // alongside an upstream CloudStream install (different signature).
+            applicationIdSuffix = ".hmcs"
         }
         create("prerelease") {
             dimension = "state"
@@ -214,9 +217,28 @@ android {
 
     packaging {
         jniLibs {
-            // Enables legacy JNI packaging to reduce APK size (similar to builds before minSdk 23).
-            // Note: This may increase app startup time slightly.
-            useLegacyPackaging = true
+            // HMCS: uncompressed .so loaded via mmap from the APK.
+            // Legacy packaging (compressed .so extracted at install) doubled disk usage,
+            // which is fatal on 4 GB storage TV boxes.
+            useLegacyPackaging = false
+        }
+        resources {
+            excludes += setOf(
+                "META-INF/*.version",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/DEPENDENCIES",
+            )
+        }
+    }
+
+    // Split APKs per ABI so sideloaded downloads stay small; a universal APK is always produced too.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
         }
     }
 

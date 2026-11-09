@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HMCS: launcher identity for this fork -->
+    <string name="app_name">HMCS</string>
+    <string name="play_with_app_name">Play with HMCS</string>
+</resources>
