@@ -2,9 +2,11 @@ package com.lagradost.cloudstream3
 
 import android.app.Activity
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -84,6 +86,28 @@ class CloudStreamApp : Application(), SingletonImageLoader.Factory {
         }
 
         AppDebug.isDebug = BuildConfig.DEBUG
+
+        // Process-wide memory-pressure handling: shed network sockets so the
+        // binder/eMMC pressure doesn't get mistaken for a crash cause.
+        registerComponentCallbacks(object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= TRIM_MEMORY_UI_HIDDEN) {
+                    try {
+                        app.baseClient.connectionPool.evictAll()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        insecureApp.baseClient.connectionPool.evictAll()
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+            @Deprecated("Deprecated in Java")
+            override fun onLowMemory() = Unit
+        })
     }
 
     override fun attachBaseContext(base: Context?) {
