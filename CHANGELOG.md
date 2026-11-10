@@ -1,9 +1,30 @@
 # Changelog
 
-All notable changes to HMCS vs upstream CloudStream. Versions follow upstream base + fork tag:
-`v1.0.0` = upstream `4.9.0` / versionCode `68`, fork versionCode bumped to `100`.
+All notable changes to HMCS vs upstream CloudStream. Versions follow upstream base + fork tag.
 
 Format: [Keep a Changelog](https://keepachangelog.com/). Newest first.
+
+## [v1.1.0] - 2026-11-10
+
+Base: `recloudstream/cloudstream` @ `5d66bbe` (v4.9.1 / code 68 + fork code 101).
+Fork versionName `4.9.1-hmcs.2`, versionCode `101`.
+
+Upstream sync (cherry-picked, no reverts of fork changes):
+
+- `468f783` Added HW+ (#3312): audio-only renderer factory (`FixedNextRenderersFactoryWithoutVideo`)
+  and new "HW+" / "HW+SW audio-sw/hw" software-decoding preference values (enum values 3 and 4).
+- `c92e0cf` Bump 4.9.1 + remove `@Prerelease` annotations.
+- `5d66bbe` Fixed launch (#3316): `subsPathPicker` launch via shared `launchSafe`,
+  plus assorted cleanup (`BackupUtils` rewrite, unused imports).
+
+HMCS deltas over upstream additionally get current `master` history via upstream sync branch;
+all fork changes from v1.0.0 remain intact (async MediaCodec queueing and renderers-factory
+fallback now also cover the upstream `isAudioOnly` path).
+
+### Fixed
+
+- Merge-time fix: `FixedNextRenderersFactoryWithoutVideo` also gets decoder fallback + async
+  MediaCodec queueing (matches the other renderer factories).
 
 ## [v1.0.0] - 2026-11-09
 
