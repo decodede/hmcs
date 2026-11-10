@@ -4,6 +4,38 @@ All notable changes to HMCS vs upstream CloudStream. Versions follow upstream ba
 
 Format: [Keep a Changelog](https://keepachangelog.com/). Newest first.
 
+## [v1.2.0] - 2026-11-10
+
+Base: `recloudstream/cloudstream` @ `5d66bbe` (upstream 4.9.1). Version `4.9.1-hmcs.3`, code `102`.
+
+### Fixed
+
+- **Bounded auto re-prepare on transient playback errors** (`CS3IPlayer`): IO family
+  (network failed/timeout, bad HTTP status, invalid content type, file not found,
+  remote error) and parse family (`PARSING_CONTAINER_UNSUPPORTED`/`MALFORMED`,
+  `PARSING_MANIFEST_MALFORMED`) are re-prepared automatically with a 4-attempt budget.
+  Previously these either spun forever (user had to go back and replay — issue seen with
+  flaky m3u8 CDNs) or, for delayed-start live links, never recovered.
+- **Stall watchdog** (`CS3IPlayer`): every 2.5 s poll; ~8 s in `STATE_BUFFERING` with no
+  position progress forces a re-prepare within the same 4-attempt budget.
+  Directly targets "live link gets stuck, VLC plays it fine" (media3 never re-prepares
+  itself; Nuvio and similar players retry).
+- **Live rejoin bounded**: `ERROR_CODE_BEHIND_LIVE_WINDOW` and
+  `HlsPlaylistTracker.PlaylistStuckException` now use the 4-attempt budget
+  (previously unbounded prepare loops). After the budget is exhausted the error surfaces
+  to the mirror failover path as before.
+- Behavior note: upstream's unbounded `IO_NETWORK_CONNECTION_FAILED → prepare()` special
+  case is subsumed by the bounded retriable class; 4 failures now surface to mirror
+  failover instead of looping forever.
+
+### Not changed
+
+- Decoder errors are intentionally NOT retried (they do not self-heal).
+- No `LoadErrorHandlingPolicy` subclass shipped: upstream default retry semantics retained;
+  recovery happens at the app layer.
+- `#3094`-class transient `3003` on delayed-start live links: covered by the retriable class.
+- `#3218`-class silent stalls with frozen position: covered by the stall watchdog.
+
 ## [v1.1.0] - 2026-11-10
 
 Base: `recloudstream/cloudstream` @ `5d66bbe` (v4.9.1 / code 68 + fork code 101).
