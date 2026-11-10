@@ -145,6 +145,23 @@ class CS3IPlayer : IPlayer {
     private var playerListener: Player.Listener? = null
     private var isPlaying = false
     private var exoPlayer: ExoPlayer? = null
+
+    // --- Bounded auto-recovery (HMCS) ---
+    // Flaky m3u8 CDNs and delayed-start live links often fail transiently with IO/parse
+    // errors and play fine on the next attempt. Media3 does NOT re-prepare itself, so
+    // these used to surface as "stuck forever at buffering". Re-prepare a bounded number
+    // of times before surfacing the error to the mirror failover path.
+    @Volatile
+    private var autoReprepareAttempts = 0
+
+    // Stall watchdog: detects STATE_BUFFERING with no position progress and re-prepares.
+    @Volatile
+    private var stallTicks = 0
+
+    @Volatile
+    private var lastStallPosition = -1L
+
+    private var stallWatchdog: Handler? = null
         set(value) {
             // If the old value is not null then the player has not been properly released.
             debugAssert(
@@ -632,9 +649,67 @@ class CS3IPlayer : IPlayer {
         }
         //simpleCache?.release()
 
+        stopStallWatchdog()
         exoPlayer = null
         event(PlayerAttachedEvent(null))
         //simpleCache = null
+    }
+
+    private fun tryAutoReprepare(): Boolean {
+        if (autoReprepareAttempts >= MAX_AUTO_REPREPARES) return false
+        autoReprepareAttempts += 1
+        return true
+    }
+
+    private fun resetStallCounters() {
+        autoReprepareAttempts = 0
+        stallTicks = 0
+        lastStallPosition = -1L
+    }
+
+    private fun startStallWatchdog() {
+        stopStallWatchdog()
+        val handler = Handler(Looper.getMainLooper())
+        stallWatchdog = handler
+        val tick = object : Runnable {
+            override fun run() {
+                val current = stallWatchdog ?: return
+                checkStall()
+                current.postDelayed(this, STALL_CHECK_INTERVAL_MS)
+            }
+        }
+        handler.postDelayed(tick, STALL_CHECK_INTERVAL_MS)
+    }
+
+    private fun stopStallWatchdog() {
+        stallWatchdog?.removeCallbacksAndMessages(null)
+        stallWatchdog = null
+    }
+
+    private fun checkStall() {
+        val exo = exoPlayer ?: return
+        if (exo.playbackState != Player.STATE_BUFFERING) {
+            stallTicks = 0
+            lastStallPosition = -1L
+            return
+        }
+        val position = try {
+            exo.currentPosition
+        } catch (_: Throwable) {
+            return
+        }
+        if (position == lastStallPosition && lastStallPosition != -1L) {
+            stallTicks += 1
+        } else {
+            lastStallPosition = position
+            stallTicks = 0
+        }
+        // ~8s without position progress while buffering -> force re-prepare
+        if (stallTicks >= STALL_TICKS_BEFORE_REPREPARE && tryAutoReprepare()) {
+            stallTicks = 0
+            Log.i(TAG, "Stall watchdog: no position progress for ~8s, re-preparing (attempt $autoReprepareAttempts/$MAX_AUTO_REPREPARES)")
+            exo.prepare()
+        }
     }
 
     override fun onStop() {
@@ -674,6 +749,23 @@ class CS3IPlayer : IPlayer {
 
     companion object {
         private const val CRONET_TIMEOUT_MS = 15_000
+        private const val STALL_CHECK_INTERVAL_MS = 2_500L
+        private const val STALL_TICKS_BEFORE_REPREPARE = 3
+        private const val MAX_AUTO_REPREPARES = 4
+
+        // Transient IO / parse errors that are worth an automatic bounded re-prepare
+        private val RETRIABLE_ERROR_CODES = setOf(
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+            PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+            PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+            PlaybackException.ERROR_CODE_REMOTE_ERROR,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+        )
 
         /**
          * Single shared engine, to minimize the overhead of maintaining many as:
@@ -1551,6 +1643,7 @@ class CS3IPlayer : IPlayer {
             }
 
             LiveHelper.registerPlayer(exoPlayer)
+            startStallWatchdog()
 
             exoPlayer?.addListener(object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
@@ -1614,6 +1707,7 @@ class CS3IPlayer : IPlayer {
 
                     when (playbackState) {
                         Player.STATE_READY -> {
+                            resetStallCounters()
                             onRenderFirst()
                         }
 
@@ -1645,45 +1739,59 @@ class CS3IPlayer : IPlayer {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    // If the Network fails then ignore the exception if the duration is set.
-                    // This is to switch mirrors automatically if the stream has not been fetched, but
-                    // allow playing the buffer without internet as then the duration is fetched.
+                    // Re-prepare automatically for a bounded number of attempts, then surface the
+                    // error so PlayerView can switch mirrors or show the failure message.
+                    // Media3 never re-prepares itself; an unbounded loop would just spin the
+                    // buffering indicator forever on a dead CDN.
                     when {
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
-                                && exoPlayer?.duration != TIME_UNSET -> {
-                            exoPlayer?.prepare()
-                        }
-
+                        // Live window passed the read position: rejoin at the live edge.
                         error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> {
-                            // Re-initialize player at the current live window default position.
-                            exoPlayer?.seekToDefaultPosition()
-                            exoPlayer?.prepare()
+                            if (tryAutoReprepare()) {
+                                // Re-initialize player at the current live window default position.
+                                exoPlayer?.seekToDefaultPosition()
+                                exoPlayer?.prepare()
+                                return
+                            }
                         }
 
                         // PlaylistStuckException usually happens when the player position is ahead of the live window.
                         // Seek to the default location in that case
                         error.cause is HlsPlaylistTracker.PlaylistStuckException -> {
-                            val position = exoPlayer?.currentPosition ?: exoPlayer?.duration ?: 0
+                            if (tryAutoReprepare()) {
+                                val position = exoPlayer?.currentPosition ?: exoPlayer?.duration ?: 0
 
-                            // Seek to live head
-                            val aheadOfLive =
-                                LiveHelper.getLiveManager(exoPlayer)?.getTimeAheadOfLive(position)
-                                    ?: 0
+                                // Seek to live head
+                                val aheadOfLive =
+                                    LiveHelper.getLiveManager(exoPlayer)?.getTimeAheadOfLive(position)
+                                        ?: 0
 
-                            if (aheadOfLive > 100) {
-                                exoPlayer?.seekTo(position - aheadOfLive)
-                            } else {
-                                exoPlayer?.seekToDefaultPosition()
+                                if (aheadOfLive > 100) {
+                                    exoPlayer?.seekTo(position - aheadOfLive)
+                                } else {
+                                    exoPlayer?.seekToDefaultPosition()
+                                }
+                                exoPlayer?.prepare()
+                                return
                             }
-                            exoPlayer?.prepare()
                         }
 
-
-                        else -> {
-                            event(ErrorEvent(error))
+                        // Transient IO / parse errors: flaky CDNs and delayed-start live links
+                        // typically succeed on the next attempt (matches Nuvio's behaviour of
+                        // retrying transient playback errors before giving up).
+                        error.errorCode in RETRIABLE_ERROR_CODES -> {
+                            if (tryAutoReprepare()) {
+                                Log.i(TAG, "Auto re-prepare after ${error.errorCodeName} (attempt $autoReprepareAttempts/$MAX_AUTO_REPREPARES)")
+                                exoPlayer?.prepare()
+                                return
+                            }
                         }
+
+                        else -> Unit
                     }
 
+                    // Not retried, or the auto re-prepare budget is exhausted: surface the error
+                    // (PlayerView switches mirrors if one is left, else shows the failure).
+                    event(ErrorEvent(error))
                     super.onPlayerError(error)
                 }
 
