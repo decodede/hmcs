@@ -9074,9 +9074,24 @@ public final class com/lagradost/cloudstream3/utils/serializers/FloatAsLongSeria
 }
 
 
+public abstract class com/lagradost/cloudstream3/utils/serializers/JsonTransformSerializer : kotlinx/serialization/json/JsonTransformingSerializer {
+	public fun <init> (Lkotlinx/serialization/KSerializer;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;)V
+	public synthetic fun <init> (Lkotlinx/serialization/KSerializer;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected fun transformDeserialize (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement;
+}
+
 public abstract class com/lagradost/cloudstream3/utils/serializers/NonEmptySerializer : kotlinx/serialization/json/JsonTransformingSerializer {
 	public fun <init> (Lkotlinx/serialization/KSerializer;)V
 	protected fun transformSerialize (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement;
+}
+
+public final class com/lagradost/cloudstream3/utils/serializers/NullableStringSerializer : kotlinx/serialization/KSerializer {
+	public static final field INSTANCE Lcom/lagradost/cloudstream3/utils/serializers/NullableStringSerializer;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/String;
+	public fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/String;)V
 }
 
 public abstract class com/lagradost/cloudstream3/utils/serializers/WriteOnlySerializer : kotlinx/serialization/json/JsonTransformingSerializer {
