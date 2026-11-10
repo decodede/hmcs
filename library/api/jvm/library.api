@@ -9073,7 +9073,6 @@ public final class com/lagradost/cloudstream3/utils/serializers/FloatAsLongSeria
 	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
 }
 
-
 public abstract class com/lagradost/cloudstream3/utils/serializers/JsonTransformSerializer : kotlinx/serialization/json/JsonTransformingSerializer {
 	public fun <init> (Lkotlinx/serialization/KSerializer;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;)V
 	public synthetic fun <init> (Lkotlinx/serialization/KSerializer;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
