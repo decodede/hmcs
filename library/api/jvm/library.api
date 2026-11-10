@@ -946,6 +946,8 @@ public final class com/lagradost/cloudstream3/MainAPIKt {
 	public static final fun newTvSeriesSearchResponse (Lcom/lagradost/cloudstream3/MainAPI;Ljava/lang/String;Ljava/lang/String;Lcom/lagradost/cloudstream3/TvType;ZLkotlin/jvm/functions/Function1;)Lcom/lagradost/cloudstream3/TvSeriesSearchResponse;
 	public static synthetic fun newTvSeriesSearchResponse$default (Lcom/lagradost/cloudstream3/MainAPI;Ljava/lang/String;Ljava/lang/String;Lcom/lagradost/cloudstream3/TvType;ZLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/lagradost/cloudstream3/TvSeriesSearchResponse;
 	public static final fun sortUrls (Ljava/util/Set;)Ljava/util/List;
+	public static final fun splitUrlParameters (Lio/ktor/http/Url;)Ljava/util/Map;
+	public static final fun splitUrlParameters (Ljava/lang/String;)Ljava/util/Map;
 	public static final fun toNewSearchResponseList (Ljava/util/List;Ljava/lang/Boolean;)Lcom/lagradost/cloudstream3/SearchResponseList;
 	public static synthetic fun toNewSearchResponseList$default (Ljava/util/List;Ljava/lang/Boolean;ILjava/lang/Object;)Lcom/lagradost/cloudstream3/SearchResponseList;
 	public static final fun toRatingInt (Ljava/lang/String;)Ljava/lang/Integer;
@@ -1781,6 +1783,11 @@ public final class com/lagradost/cloudstream3/extractors/Aico : com/lagradost/cl
 	public fun getName ()Ljava/lang/String;
 }
 
+public final class com/lagradost/cloudstream3/extractors/Antarcticadocs : com/lagradost/cloudstream3/extractors/Vidara {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+}
+
 public final class com/lagradost/cloudstream3/extractors/Asnwish : com/lagradost/cloudstream3/extractors/StreamWishExtractor {
 	public fun <init> ()V
 	public fun getMainUrl ()Ljava/lang/String;
@@ -2506,6 +2513,11 @@ public class com/lagradost/cloudstream3/extractors/Firestream : com/lagradost/cl
 	public fun getUrl (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class com/lagradost/cloudstream3/extractors/FirestreamSite : com/lagradost/cloudstream3/extractors/Firestream {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+}
+
 public final class com/lagradost/cloudstream3/extractors/FlaswishCom : com/lagradost/cloudstream3/extractors/StreamWishExtractor {
 	public fun <init> ()V
 	public fun getMainUrl ()Ljava/lang/String;
@@ -2961,10 +2973,23 @@ public final class com/lagradost/cloudstream3/extractors/Habetar : com/lagradost
 	public fun getName ()Ljava/lang/String;
 }
 
+public final class com/lagradost/cloudstream3/extractors/Handfacesnap : com/lagradost/cloudstream3/extractors/Vidara {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+}
+
 public final class com/lagradost/cloudstream3/extractors/Haxloppd : com/lagradost/cloudstream3/extractors/VidHidePro {
 	public fun <init> ()V
 	public fun getMainUrl ()Ljava/lang/String;
 	public fun getName ()Ljava/lang/String;
+}
+
+public final class com/lagradost/cloudstream3/extractors/Hexload : com/lagradost/cloudstream3/extractors/ExtractorApi {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+	public fun getName ()Ljava/lang/String;
+	public fun getRequiresReferer ()Z
+	public fun getUrl (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class com/lagradost/cloudstream3/extractors/Hgcloudto : com/lagradost/cloudstream3/extractors/StreamWishExtractor {
@@ -3001,6 +3026,14 @@ public final class com/lagradost/cloudstream3/extractors/Hotlinger : com/lagrado
 public final class com/lagradost/cloudstream3/extractors/HubCloud : com/lagradost/cloudstream3/utils/ExtractorApi {
 	public fun <init> ()V
 	public final fun cleanTitle (Ljava/lang/String;)Ljava/lang/String;
+	public fun getMainUrl ()Ljava/lang/String;
+	public fun getName ()Ljava/lang/String;
+	public fun getRequiresReferer ()Z
+	public fun getUrl (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public class com/lagradost/cloudstream3/extractors/HubuCloud : com/lagradost/cloudstream3/utils/ExtractorApi {
+	public fun <init> ()V
 	public fun getMainUrl ()Ljava/lang/String;
 	public fun getName ()Ljava/lang/String;
 	public fun getRequiresReferer ()Z
@@ -3531,6 +3564,16 @@ public final class com/lagradost/cloudstream3/extractors/MyVidPlay : com/lagrado
 	public fun setMainUrl (Ljava/lang/String;)V
 }
 
+public final class com/lagradost/cloudstream3/extractors/Namefacesnap : com/lagradost/cloudstream3/extractors/Vidara {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+}
+
+public final class com/lagradost/cloudstream3/extractors/Nameitweb : com/lagradost/cloudstream3/extractors/Vidara {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
+}
+
 public final class com/lagradost/cloudstream3/extractors/NathanFromSubject : com/lagradost/cloudstream3/extractors/Voe {
 	public fun <init> ()V
 	public fun getMainUrl ()Ljava/lang/String;
@@ -3611,6 +3654,11 @@ public class com/lagradost/cloudstream3/extractors/OkRuHTTP : com/lagradost/clou
 	public fun getName ()Ljava/lang/String;
 	public fun setMainUrl (Ljava/lang/String;)V
 	public fun setName (Ljava/lang/String;)V
+}
+
+public final class com/lagradost/cloudstream3/extractors/Odysseusa : com/lagradost/cloudstream3/extractors/Vidara {
+	public fun <init> ()V
+	public fun getMainUrl ()Ljava/lang/String;
 }
 
 public final class com/lagradost/cloudstream3/extractors/OkRuHTTPMobile : com/lagradost/cloudstream3/extractors/OkRuHTTP {
