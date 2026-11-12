@@ -1,6 +1,69 @@
-# Changelog
+# Changelog — HMCS vs official CloudStream
 
-All notable changes to HMCS vs upstream CloudStream. Versions follow upstream base + fork tag.
+HMCS is a fork of [recloudstream/cloudstream](https://github.com/recloudstream/cloudstream)
+tuned for ultra-low-end Android TV boxes (1 GB RAM, 4 GB storage — Allwinner/Rockchip sticks,
+Android Go, old Fire TV).
+
+This file tracks every HMCS release, which upstream CloudStream version it is based on,
+and everything the fork changes. If you know official CloudStream, this document is the delta.
+
+## How to read versions
+
+| Field       | Rule                                                 | Example                                          |
+| ----------- | ---------------------------------------------------- | ------------------------------------------------ |
+| versionName | `<upstream versionName>-hmcs.<fork revision>`        | `4.9.1-hmcs.3` = upstream 4.9.1, fork revision 3 |
+| versionCode | fork's own sequence, starts at `100`, +1 per release | independent from upstream's (upstream is `68`)   |
+| `Base:`     | upstream commit the release is synced to             | `5d66bbe`                                        |
+
+When upstream publishes a new release, its versionName/versionCode is adopted in the next HMCS
+release (fork revision resets). See `gradle/libs.versions.toml`.
+
+## Upstream sync status and history
+
+| HMCS release | Upstream base | Upstream version    | What came with it                                                                                                 |
+| ------------ | ------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `v1.0.0`     | `9ff05a8b`    | **4.9.0** (code 68) | Initial fork. Low-memory overhaul, NSFW removed, audio/subtitle language prefs.                                   |
+| `v1.1.0`     | `5d66bbe`     | **4.9.1** (code 68) | Upstream 4.9.1 sync: HW+ audio-only renderer, `Fixed launch (#3316)`, BackupUtils rewrite, `@Prerelease` cleanup. |
+| `v1.2.0`     | `5d66bbe`     | **4.9.1** (code 68) | Fork-only resilience fixes: bounded auto re-prepare + stall watchdog.                                             |
+
+Upstream release history: https://github.com/recloudstream/cloudstream/releases
+At the time of writing, the newest upstream release is **4.9.1** (this is what HMCS tracks).
+
+## How to sync with a new upstream release (recipe)
+
+Everything below is run from the HMCS repo; upstream releases are merged as individual
+cherry-picks so fork changes are never reverted blindly:
+
+```bash
+git remote add upstream https://github.com/recloudstream/cloudstream.git
+git fetch upstream master                       # or fetch --tags
+git cherry-pick <new upstream commits...>       # one at a time
+
+# Conflicts to expect:
+#   1. app/src/main/java/.../ui/player/CS3IPlayer.kt
+#      - renderers factory block (fork's decoder fallback + async MediaCodec queueing vs upstream)
+#      - keep BOTH: upstream branch + fork's fallback/async additions (see v1.1.0 notes)
+#   2. gradle/libs.versions.toml
+#      - upstream bumps versionCode/versionName; HMCS uses <upstream>-hmcs.N and code >= 100
+#   3. library/api/jvm/library.api
+#      - upstream does NOT regenerate its ABI dump when it adds public API;
+#        hand-add the new entries until library:checkKotlinAbi passes again
+#      - run `./gradlew library:checkKotlinAbi` via CI; it prints the exact missing lines
+
+git push                                        # CI must go green (library ABI + assemble)
+# bump version in gradle/libs.versions.toml, add entry to this file,
+# tag vX.Y.Z, push tag — .github/workflows/release.yml publishes the APKs
+```
+
+Rules we follow for syncs:
+
+- Fork changes are never reverted to land upstream changes; we merge by hand, keeping both.
+- No full history merges: HMCS was created from a snapshot and uses upstream as a cherry-pick
+  source, so upstream and fork history stay separate but diff-friendly.
+- CI is the only gate (no on-device test rig): `library:checkKotlinAbi` + `assembleStableDebug`
+  per push, `assembleStableRelease` per release tag.
+
+## Release notes by version
 
 Format: [Keep a Changelog](https://keepachangelog.com/). Newest first.
 
